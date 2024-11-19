@@ -1,9 +1,12 @@
 const videoContainer = document.getElementById("video-container");
 const categoryContainer = document.getElementById("category-container");
+const searchInput = document.getElementById("search-input");
 const spinner = document.getElementById("spinner");
 
 let nextPageToken = "";
 let selectedCategories = [];
+let searchQuery = "";
+let searchTimeout = null;
 const videosPerPage = 6;
 
 function renderShimmer(count = videosPerPage) {
@@ -15,14 +18,16 @@ function renderShimmer(count = videosPerPage) {
 }
 
 async function fetchVideos(pageToken = "") {
-  if (!pageToken) videoContainer.innerHTML = ""; 
+  if (!pageToken) videoContainer.innerHTML = "";
   renderShimmer();
 
   const categoryQuery = selectedCategories.length
     ? `&q=${selectedCategories.join("|")}`
     : "";
 
-  const searchUrl = `${CONFIG.SEARCH_URL}?part=snippet&type=video&maxResults=${videosPerPage}&pageToken=${pageToken}&regionCode=${CONFIG.REGION_CODE}&key=${CONFIG.API_KEY}${categoryQuery}`;
+  const searchQueryParam = searchQuery ? `&q=${searchQuery}` : "";
+
+  const searchUrl = `${CONFIG.SEARCH_URL}?part=snippet&type=video&maxResults=${videosPerPage}&pageToken=${pageToken}&regionCode=${CONFIG.REGION_CODE}&key=${CONFIG.API_KEY}${categoryQuery}${searchQueryParam}`;
 
   try {
     const searchResponse = await fetch(searchUrl);
@@ -49,10 +54,34 @@ async function fetchVideos(pageToken = "") {
 function renderVideos(videos) {
   videoContainer
     .querySelectorAll(".shimmer-card")
-    .forEach((card) => card.remove()); 
+    .forEach((card) => card.remove());
+
+  const observer = new IntersectionObserver(
+    (entries, observer) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const videoCard = entry.target;
+          const viewCountElement = videoCard.querySelector(".view-count");
+
+          let viewCount = parseInt(
+            viewCountElement.textContent.replace(/[^\d]/g, "")
+          );
+          viewCount += 1;
+          viewCountElement.textContent = formatViewCount(viewCount.toString());
+
+          // console.log(viewCount);
+          
+          observer.unobserve(videoCard);
+        }
+      });
+    },
+    {
+      threshold: 0.5,
+    }
+  );
 
   videos.forEach((video) => {
-    const { title, thumbnails } = video.snippet;
+    const { title, thumbnails, channelTitle } = video.snippet;
     const viewCount = video.statistics.viewCount || "N/A";
 
     const card = document.createElement("div");
@@ -60,10 +89,25 @@ function renderVideos(videos) {
     card.innerHTML = `
       <img src="${thumbnails.high.url}" alt="${title}">
       <h3>${title}</h3>
-      <p>${viewCount} views</p>
+      <p class="channel-title">${channelTitle}</p>
+      <p class="view-count">${formatViewCount(viewCount)} views</p>
     `;
+
+    observer.observe(card);
+
     videoContainer.appendChild(card);
   });
+}
+
+function formatViewCount(count) {
+  if (count === "N/A") return count;
+  const num = parseInt(count);
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1) + "M";
+  } else if (num >= 1000) {
+    return  
+  }
+  return num.toString();
 }
 
 function setupCategories() {
@@ -94,6 +138,7 @@ function toggleCategory(category) {
     selectedCategories.push(category);
     button.classList.add("selected");
   }
+  nextPageToken = "";
   fetchVideos();
 }
 
@@ -101,7 +146,22 @@ function clearCategories() {
   selectedCategories = [];
   const buttons = categoryContainer.getElementsByTagName("button");
   Array.from(buttons).forEach((button) => button.classList.remove("selected"));
-  fetchVideos(); 
+  nextPageToken = "";
+  fetchVideos();
+}
+
+function handleSearch(event) {
+  const query = event.target.value.trim();
+
+  if (searchTimeout) {
+    clearTimeout(searchTimeout);
+  }
+
+  searchTimeout = setTimeout(() => {
+    searchQuery = query;
+    nextPageToken = "";
+    fetchVideos();
+  }, 500);
 }
 
 window.addEventListener("scroll", () => {
@@ -114,6 +174,8 @@ window.addEventListener("scroll", () => {
     }
   }
 });
+
+searchInput.addEventListener("input", handleSearch);
 
 setupCategories();
 fetchVideos();
